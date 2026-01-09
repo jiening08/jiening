@@ -3,298 +3,504 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>LINE 預約系統 - 極速版</title>
+    <title>LINE 預約系統 - LINE 登入整合版</title>
     
-    <!-- 1. 將 JS 移到底部，這裡只放關鍵 CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script charset="utf-8" src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
     
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@300;400;500;700&display=swap');
         
-        body {
-            font-family: 'Noto Sans TC', sans-serif;
-            background-color: #f3f4f6; 
-            height: 100vh;
-            overflow: hidden;
-        }
-
-        /* 隱藏滾動條 */
+        body { font-family: 'Noto Sans TC', sans-serif; background-color: #f3f4f6; height: 100vh; overflow: hidden; }
         .no-scrollbar::-webkit-scrollbar { display: none; }
         .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
 
-        .app-container {
-            background-color: #ffffff;
-            height: 100%;
-            overflow-y: auto;
-            position: relative;
-            display: flex;
-            flex-direction: column;
-        }
-
-        /* UI 元件樣式 */
+        .app-container { background-color: #ffffff; height: 100%; overflow-y: auto; display: flex; flex-direction: column; position: relative; }
+        
+        /* UI Styles */
         .tab-active { color: #06C755; font-weight: 700; }
         .tab-inactive { color: #9CA3AF; }
         
-        .calendar-day {
-            aspect-ratio: 1; display: flex; align-items: center; justify-content: center;
-            cursor: pointer; border-radius: 50%; transition: all 0.2s;
-        }
-        .calendar-day.selected { background-color: #06C755; color: white; }
-
-        /* 新增：非阻擋式連線提示 (Toast) */
-        .connection-toast {
-            position: fixed;
-            top: 10px;
-            left: 50%;
-            transform: translateX(-50%);
-            background: rgba(0, 0, 0, 0.8);
-            color: white;
-            padding: 8px 16px;
-            border-radius: 20px;
-            font-size: 12px;
-            z-index: 9999;
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            transition: opacity 0.3s, transform 0.3s;
-            opacity: 0;
-            pointer-events: none; /* 讓點擊穿透，不影響操作 */
-        }
-        .connection-toast.show {
-            opacity: 1;
-            transform: translateX(-50%) translateY(0);
-        }
-        .connection-toast.hidden-toast {
-            opacity: 0;
-            transform: translateX(-50%) translateY(-20px);
-        }
-
-        /* 載入動畫小圈圈 */
-        .spinner {
-            width: 12px;
-            height: 12px;
-            border: 2px solid #ffffff;
-            border-top-color: transparent;
-            border-radius: 50%;
-            animation: spin 1s linear infinite;
-        }
-        @keyframes spin { to { transform: rotate(360deg); } }
+        /* Member Card Gradient */
+        .member-card-bg { background: linear-gradient(135deg, #1f2937 0%, #111827 100%); }
+        .gold-text { color: #fbbf24; }
+        
+        /* Admin Panel Styles */
+        .admin-input { border: 1px solid #e5e7eb; padding: 8px; rounded: 8px; width: 100%; font-size: 14px; }
+        .admin-input:focus { outline: none; border-color: #06C755; ring: 2px; }
     </style>
 </head>
 <body>
 
-    <!-- 2. 連線狀態提示 (不再是全螢幕遮罩) -->
-    <div id="liff-toast" class="connection-toast show">
-        <div class="spinner"></div>
-        <span>正在連接 LINE 帳號...</span>
-    </div>
-
     <div class="flex h-full max-w-7xl mx-auto shadow-2xl overflow-hidden rounded-none md:rounded-xl">
         
-        <!-- Client App -->
-        <div id="client-app" class="w-full md:w-[450px] md:border-r border-gray-200 flex-shrink-0 z-10">
-            <div class="app-container no-scrollbar">
-                <header class="bg-white sticky top-0 z-20 border-b border-gray-100 px-4 py-3 flex items-center justify-between shadow-sm">
-                    <div class="flex items-center space-x-2">
-                        <div class="w-8 h-8 bg-[#06C755] rounded-lg flex items-center justify-center text-white font-bold text-lg">L</div>
-                        <h1 class="text-lg font-bold text-gray-800">LINE 預約</h1>
-                    </div>
-                    <!-- Status Display -->
-                    <div id="user-status-badge" class="text-[10px] bg-gray-100 px-2 py-1 rounded text-gray-500 transition-colors">
-                        訪客模式
-                    </div>
-                </header>
+        <!-- ================= LEFT: CLIENT APP SIMULATOR ================= -->
+        <div id="client-app" class="w-full md:w-[400px] md:border-r border-gray-200 flex-shrink-0 z-10 bg-white flex flex-col transition-all duration-300">
+            
+            <!-- App Header (Hidden on Login) -->
+            <header id="app-header" class="bg-white sticky top-0 z-20 border-b border-gray-100 px-4 py-3 flex items-center justify-between shadow-sm flex-shrink-0 hidden">
+                <div class="flex items-center space-x-2">
+                    <div class="w-8 h-8 bg-[#06C755] rounded-lg flex items-center justify-center text-white font-bold text-lg">L</div>
+                    <h1 class="text-lg font-bold text-gray-800" id="app-title-display">LINE 預約</h1>
+                </div>
+                <!-- Profile Edit Button (Only visible on profile page) -->
+                <button id="header-action-btn" class="text-sm text-[#06C755] font-bold hidden" onclick="openEditProfile()">編輯</button>
+            </header>
 
-                <main id="app-content" class="flex-grow p-4 pb-24">
-                    <!-- Default Skeleton Loading (讓畫面看起來不像壞掉) -->
-                    <div class="animate-pulse space-y-4">
-                        <div class="h-40 bg-gray-200 rounded-2xl"></div>
-                        <div class="grid grid-cols-4 gap-4">
-                            <div class="h-16 bg-gray-200 rounded-xl"></div>
-                            <div class="h-16 bg-gray-200 rounded-xl"></div>
-                            <div class="h-16 bg-gray-200 rounded-xl"></div>
-                            <div class="h-16 bg-gray-200 rounded-xl"></div>
-                        </div>
-                    </div>
-                </main>
+            <!-- App Content -->
+            <main id="app-content" class="flex-grow p-0 overflow-y-auto no-scrollbar relative bg-gray-50">
+                <!-- Content Rendered via JS -->
+            </main>
 
-                <nav class="bg-white border-t border-gray-100 absolute bottom-0 w-full h-16 flex justify-around items-center px-2 z-30">
-                    <button onclick="navigateTo('home')" class="nav-item tab-active flex flex-col items-center space-y-1 w-1/4" data-target="home"><span class="text-2xl">🏠</span><span class="text-[10px]">首頁</span></button>
-                    <button onclick="navigateTo('services')" class="nav-item tab-inactive flex flex-col items-center space-y-1 w-1/4" data-target="services"><span class="text-2xl">📅</span><span class="text-[10px]">預約</span></button>
-                    <button onclick="navigateTo('records')" class="nav-item tab-inactive flex flex-col items-center space-y-1 w-1/4" data-target="records"><span class="text-2xl">📋</span><span class="text-[10px]">紀錄</span></button>
-                    <button onclick="navigateTo('profile')" class="nav-item tab-inactive flex flex-col items-center space-y-1 w-1/4" data-target="profile"><span class="text-2xl">👤</span><span class="text-[10px]">我的</span></button>
-                </nav>
-            </div>
+            <!-- App Bottom Nav -->
+            <nav id="app-nav" class="bg-white border-t border-gray-100 absolute bottom-0 w-full h-16 flex justify-around items-center px-2 z-30 shadow-[0_-2px_10px_rgba(0,0,0,0.05)] hidden">
+                <button onclick="navigateTo('home')" class="nav-item tab-inactive flex flex-col items-center space-y-1 w-1/4" data-target="home"><span class="text-2xl">🏠</span><span class="text-[10px]">首頁</span></button>
+                <button onclick="navigateTo('services')" class="nav-item tab-inactive flex flex-col items-center space-y-1 w-1/4" data-target="services"><span class="text-2xl">📅</span><span class="text-[10px]">預約</span></button>
+                <button onclick="navigateTo('records')" class="nav-item tab-inactive flex flex-col items-center space-y-1 w-1/4" data-target="records"><span class="text-2xl">📋</span><span class="text-[10px]">紀錄</span></button>
+                <button onclick="navigateTo('profile')" class="nav-item tab-active flex flex-col items-center space-y-1 w-1/4" data-target="profile"><span class="text-2xl">👤</span><span class="text-[10px]">會員</span></button>
+            </nav>
         </div>
 
-        <!-- Admin Dashboard (Desktop) -->
-        <div id="admin-dashboard" class="hidden md:block flex-grow bg-gray-50 overflow-y-auto h-full p-8">
-            <h2 class="text-2xl font-bold mb-4">後台預覽</h2>
-            <div class="bg-white p-6 rounded-xl shadow-sm h-64 flex items-center justify-center text-gray-400">
-                圖表區域 (數據同步中...)
+        <!-- ================= RIGHT: ADMIN DASHBOARD ================= -->
+        <div id="admin-dashboard" class="hidden md:block flex-grow bg-gray-50 overflow-y-auto h-full p-6 md:p-8">
+            <div class="flex justify-between items-center mb-6">
+                <div>
+                    <h2 class="text-2xl font-bold text-gray-800">⚙️ 店家管理後台</h2>
+                    <p class="text-sm text-gray-500">在此設定您的服務項目、人員與基本資訊。</p>
+                </div>
+                <button onclick="resetToDefault()" class="text-red-500 text-sm hover:underline">重置為預設值</button>
+            </div>
+            <!-- Settings Sections -->
+            <div class="space-y-6">
+                <div class="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
+                    <h3 class="font-bold text-lg mb-4 flex items-center">🏪 基本資訊</h3>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div><label class="block text-xs font-bold text-gray-500 mb-1">商店名稱</label><input type="text" id="setting-shop-name" class="admin-input" onchange="updateSettings()"></div>
+                        <div><label class="block text-xs font-bold text-gray-500 mb-1">歡迎詞</label><input type="text" id="setting-welcome-msg" class="admin-input" onchange="updateSettings()"></div>
+                    </div>
+                </div>
+                <div class="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
+                    <div class="flex justify-between items-center mb-4"><h3 class="font-bold text-lg">✂️ 服務項目設定</h3><button onclick="addNewService()" class="bg-[#06C755] text-white px-3 py-1 rounded-lg text-sm font-bold">+ 新增</button></div>
+                    <div class="overflow-x-auto"><table class="w-full text-sm text-left"><tbody id="services-table-body"></tbody></table></div>
+                </div>
+                <div class="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
+                    <div class="flex justify-between items-center mb-4"><h3 class="font-bold text-lg">👨‍🎨 人員設定</h3><button onclick="addNewStaff()" class="bg-blue-500 text-white px-3 py-1 rounded-lg text-sm font-bold">+ 新增</button></div>
+                    <div class="grid grid-cols-2 md:grid-cols-4 gap-4" id="staff-grid"></div>
+                </div>
+            </div>
+        </div>
+        <button id="mobile-back-btn" onclick="mobileToggleAdmin()" class="md:hidden hidden fixed top-4 right-4 bg-gray-800 text-white px-4 py-2 rounded-full shadow-lg z-50 text-sm">後台設定</button>
+    </div>
+
+    <!-- Edit Profile Modal -->
+    <div id="edit-profile-modal" class="hidden absolute inset-0 z-50 bg-black bg-opacity-50 flex items-center justify-center p-4">
+        <div class="bg-white w-full max-w-sm rounded-2xl p-6 shadow-2xl animate-scale-in">
+            <h3 class="text-xl font-bold mb-4">修改會員資料</h3>
+            <div class="space-y-4">
+                <div><label class="text-xs text-gray-500">顯示名稱</label><input id="edit-name" type="text" class="w-full border p-2 rounded-lg focus:ring-2 focus:ring-[#06C755] outline-none"></div>
+                <div><label class="text-xs text-gray-500">聯絡電話</label><input id="edit-phone" type="tel" class="w-full border p-2 rounded-lg focus:ring-2 focus:ring-[#06C755] outline-none"></div>
+                <div class="flex space-x-2 pt-2"><button onclick="closeEditProfile()" class="flex-1 py-2 text-gray-500 bg-gray-100 rounded-lg">取消</button><button onclick="saveProfile()" class="flex-1 py-2 text-white bg-[#06C755] rounded-lg font-bold">儲存</button></div>
             </div>
         </div>
     </div>
 
-    <!-- 3. LIFF SDK 放在底部 -->
-    <script charset="utf-8" src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
-    
-    <script>
-        // --- 設定區 ---
-        const LIFF_ID = "2008849711-IGFBS0QP"; // 請填入 LIFF ID
-        const BACKEND_URL = "https://script.google.com/macros/s/AKfycbzBouzc0G0pe7YdKDs0UWcudD53EebhtZcvHuDmijjVbGmB5ISLr52HfeDWsUTCxvzJ/exec"; // Google Apps Script URL
+    <!-- Coupon Modal -->
+    <div id="coupon-modal" class="hidden absolute inset-0 z-50 bg-black bg-opacity-50 flex items-end justify-center sm:items-center">
+        <div class="bg-gray-100 w-full md:max-w-sm h-[70%] md:h-auto md:rounded-2xl rounded-t-2xl p-4 shadow-2xl animate-scale-in flex flex-col">
+            <div class="flex justify-between items-center mb-4 px-2"><h3 class="text-lg font-bold">我的優惠券</h3><button onclick="closeCouponModal()" class="w-8 h-8 bg-gray-200 rounded-full text-gray-500">×</button></div>
+            <div class="flex-grow overflow-y-auto space-y-3 p-2">
+                <div class="bg-white p-4 rounded-lg shadow-sm flex items-center relative overflow-hidden"><div class="border-r-2 border-dashed border-gray-200 pr-4 mr-4"><span class="text-2xl font-bold text-red-500">85折</span></div><div><div class="font-bold text-gray-800">新會員見面禮</div><div class="text-xs text-gray-400">效期至: 2025/12/31</div></div><button class="absolute right-4 bg-red-50 text-red-500 text-xs px-2 py-1 rounded">未使用</button></div>
+                <div class="bg-white p-4 rounded-lg shadow-sm flex items-center relative overflow-hidden"><div class="border-r-2 border-dashed border-gray-200 pr-4 mr-4"><span class="text-2xl font-bold text-[#06C755]">$100</span></div><div><div class="font-bold text-gray-800">生日禮金</div><div class="text-xs text-gray-400">效期至: 2025/12/31</div></div><button class="absolute right-4 bg-green-50 text-[#06C755] text-xs px-2 py-1 rounded">未使用</button></div>
+            </div>
+        </div>
+    </div>
 
-        // --- 資料狀態 ---
-        const store = {
+    <!-- ================= JAVASCRIPT LOGIC ================= -->
+    <script>
+        // --- 1. DATA & STATE ---
+        const DEFAULTS = {
+            shopName: "LINE 預約系統",
+            welcomeMsg: "歡迎回來，請選擇您需要的服務。",
             services: [
                 { id: 's1', name: '精緻剪髮', price: 600, duration: 60, icon: '✂️' },
                 { id: 's2', name: '染髮設計', price: 2500, duration: 120, icon: '🎨' },
                 { id: 's3', name: '頭皮護理', price: 1200, duration: 90, icon: '💆' }
             ],
-            staff: [{id:'st1', name:'Alice'}, {id:'st2', name:'Bob'}],
-            user: { userId: 'guest', displayName: '訪客', pictureUrl: '', isLineUser: false },
-            bookings: []
+            staff: [{ id: 'st1', name: 'Alice', image: '👩‍🦰' }, { id: 'st2', name: 'Bob', image: '👨‍🦱' }]
         };
-        
-        let currentState = { view: 'home', booking: {} };
 
-        // --- 核心優化：非同步初始化 ---
-        async function startApp() {
-            // 1. 無論 LIFF 是否準備好，先渲染畫面 (解決白畫面問題)
-            renderView('home');
+        let store = { config: {}, user: null, bookings: [] };
+        let currentState = { view: 'login', booking: {} };
+        let verificationCode = ""; 
 
-            if (!LIFF_ID) {
-                showToast("開發模式 (無 LIFF ID)", false);
-                return;
-            }
+        // --- 2. INITIALIZATION ---
+        function loadData() {
+            const savedConfig = localStorage.getItem('booking_app_config');
+            store.config = savedConfig ? JSON.parse(savedConfig) : JSON.parse(JSON.stringify(DEFAULTS));
+            
+            // Populate Admin
+            document.getElementById('setting-shop-name').value = store.config.shopName;
+            document.getElementById('setting-welcome-msg').value = store.config.welcomeMsg;
+            renderAdminLists();
 
-            // 2. 設定 3秒 逾時機制
-            const timeoutPromise = new Promise((_, reject) => 
-                setTimeout(() => reject(new Error("Timeout")), 3000)
-            );
-
-            try {
-                // 3. 嘗試連線 LIFF (與逾時競賽)
-                await Promise.race([liff.init({ liffId: LIFF_ID }), timeoutPromise]);
-
-                // 連線成功
-                if (liff.isLoggedIn()) {
-                    const profile = await liff.getProfile();
-                    store.user = {
-                        userId: profile.userId,
-                        displayName: profile.displayName,
-                        pictureUrl: profile.pictureUrl,
-                        isLineUser: true
-                    };
-                    updateUserStatus(true);
-                    showToast(`歡迎回來，${profile.displayName}`, false);
-                    renderView('home'); // 重新渲染以顯示頭像
-                } else {
-                    liff.login(); // 若沒登入，嘗試登入
-                }
-            } catch (error) {
-                console.warn("LIFF 連線慢或失敗，切換至訪客模式", error);
-                showToast("網路較慢，已切換至訪客模式", false);
-                updateUserStatus(false);
-                // 即使失敗，App 依然可以使用，不會卡住
-            }
-        }
-
-        // --- UI Helper Functions ---
-        function showToast(msg, persist = false) {
-            const toast = document.getElementById('liff-toast');
-            toast.innerHTML = `<span>${msg}</span>`;
-            toast.classList.add('show');
-            if (!persist) {
-                setTimeout(() => {
-                    toast.classList.remove('show');
-                    toast.classList.add('hidden-toast');
-                }, 3000); // 3秒後消失
-            }
-        }
-
-        function updateUserStatus(isLine) {
-            const badge = document.getElementById('user-status-badge');
-            if (isLine) {
-                badge.innerText = "已連線 LINE";
-                badge.className = "text-[10px] bg-green-100 text-green-600 px-2 py-1 rounded transition-colors";
+            // Check Login Status
+            const savedUser = localStorage.getItem('booking_app_user');
+            if (savedUser) {
+                store.user = JSON.parse(savedUser);
+                navigateTo('home');
             } else {
-                badge.innerText = "訪客模式";
-                badge.className = "text-[10px] bg-gray-100 text-gray-500 px-2 py-1 rounded transition-colors";
+                navigateTo('login');
             }
         }
+        function saveData() {
+            localStorage.setItem('booking_app_config', JSON.stringify(store.config));
+            document.getElementById('app-title-display').innerText = store.config.shopName;
+            if (currentState.view !== 'login') renderView(currentState.view);
+        }
 
-        // --- Navigation Logic ---
+        // --- 3. LOGIN LOGIC (UPDATED WITH LINE LOGIN) ---
+        function renderLogin() {
+            document.getElementById('app-header').classList.add('hidden');
+            document.getElementById('app-nav').classList.add('hidden');
+            return `
+                <div class="h-full flex flex-col items-center justify-center p-8 bg-white animate-fade-in relative">
+                    <div class="w-full max-w-sm">
+                        <div class="text-center mb-8">
+                            <div class="w-20 h-20 bg-[#06C755] rounded-3xl flex items-center justify-center text-white text-4xl font-bold mx-auto mb-6 shadow-xl shadow-green-100">L</div>
+                            <h2 class="text-2xl font-bold text-gray-800">會員登入</h2>
+                            <p class="text-gray-400 mt-2 text-sm">請選擇登入方式以開始預約</p>
+                        </div>
+                        
+                        <!-- NEW: LINE Login Button (Primary) -->
+                        <button onclick="lineLoginMock()" class="w-full bg-[#06C755] text-white py-4 rounded-2xl font-bold text-lg shadow-lg hover:bg-[#05b54d] transition transform active:scale-95 flex items-center justify-center space-x-3 mb-6 relative overflow-hidden group">
+                            <span class="absolute inset-0 bg-white opacity-0 group-hover:opacity-10 transition"></span>
+                            <span class="text-2xl font-bold">LINE</span>
+                            <span>使用 LINE 帳號登入</span>
+                        </button>
+
+                        <div class="relative my-6">
+                            <div class="absolute inset-0 flex items-center"><div class="w-full border-t border-gray-100"></div></div>
+                            <div class="relative flex justify-center text-xs text-gray-400"><span class="px-2 bg-white">或使用手機號碼驗證</span></div>
+                        </div>
+
+                        <!-- Phone Login Form -->
+                        <div id="phone-login-step-1" class="space-y-4">
+                            <input type="tel" id="login-phone" class="w-full bg-gray-50 border border-gray-100 rounded-2xl px-5 py-3 text-lg focus:ring-2 focus:ring-[#06C755] focus:outline-none transition" placeholder="輸入手機號碼">
+                            <button onclick="sendSmsCode()" class="w-full bg-white border border-gray-200 text-gray-700 py-3 rounded-2xl font-bold shadow-sm hover:bg-gray-50 transition">發送驗證碼</button>
+                        </div>
+
+                        <div id="phone-login-step-2" class="space-y-4 hidden animate-fade-in">
+                            <input type="number" id="login-code" class="w-full bg-gray-50 border border-gray-100 rounded-2xl px-5 py-3 text-lg text-center tracking-[1em] font-bold focus:ring-2 focus:ring-[#06C755] focus:outline-none" placeholder="----">
+                            <p class="text-center text-sm text-gray-400">驗證碼: <span id="mock-code-display" class="font-bold text-[#06C755]"></span></p>
+                            <button onclick="verifyAndLogin()" class="w-full bg-gray-800 text-white py-3 rounded-2xl font-bold shadow-lg hover:bg-gray-700 transition">驗證並登入</button>
+                            <button onclick="resetLoginStep()" class="w-full text-gray-400 text-sm py-2">重新輸入</button>
+                        </div>
+
+                        <div class="mt-6">
+                             <button onclick="googleLoginMock()" class="w-full border border-gray-200 py-3 rounded-xl flex items-center justify-center space-x-3 hover:bg-gray-50 transition text-sm">
+                                <img src="https://www.svgrepo.com/show/475656/google-color.svg" class="w-4 h-4">
+                                <span class="text-gray-600 font-medium">Google 登入</span>
+                            </button>
+                        </div>
+                    </div>
+                </div>`;
+        }
+
+        // Login Logic Implementations
+        function lineLoginMock() {
+            // Mock LINE Login process
+            const btn = document.querySelector('button[onclick="lineLoginMock()"]');
+            const originalContent = btn.innerHTML;
+            btn.innerHTML = `<div class="animate-spin rounded-full h-6 w-6 border-b-2 border-white"></div>`;
+            
+            setTimeout(() => {
+                loginSuccess({ 
+                    userId: 'line_' + Date.now(), 
+                    displayName: 'LINE 用戶', 
+                    phone: '', // LINE login often doesn't give phone by default
+                    loginType: 'line', 
+                    points: 100 
+                });
+            }, 1000);
+        }
+
+        function sendSmsCode() {
+            const phone = document.getElementById('login-phone').value;
+            if (!phone || phone.length < 8) return alert('請輸入手機號碼');
+            verificationCode = Math.floor(1000 + Math.random() * 9000).toString();
+            document.getElementById('phone-login-step-1').classList.add('hidden');
+            document.getElementById('phone-login-step-2').classList.remove('hidden');
+            document.getElementById('mock-code-display').innerText = verificationCode;
+            setTimeout(() => document.getElementById('login-code').value = verificationCode, 800);
+        }
+        function resetLoginStep() {
+            document.getElementById('phone-login-step-2').classList.add('hidden');
+            document.getElementById('phone-login-step-1').classList.remove('hidden');
+        }
+        function verifyAndLogin() {
+            if (document.getElementById('login-code').value === verificationCode) {
+                const phone = document.getElementById('login-phone').value;
+                loginSuccess({ userId: 'u_'+phone, displayName: '會員 '+phone.slice(-4), phone: phone, loginType: 'phone', points: 100 });
+            } else alert('驗證碼錯誤');
+        }
+        function googleLoginMock() {
+            setTimeout(() => loginSuccess({ userId: 'g_'+Date.now(), displayName: 'Google 用戶', phone: '', loginType: 'google', points: 100 }), 1000);
+        }
+        
+        function loginSuccess(userData) {
+            store.user = userData;
+            localStorage.setItem('booking_app_user', JSON.stringify(store.user));
+            // Show success animation
+            document.getElementById('app-content').innerHTML = `<div class="h-full flex flex-col items-center justify-center bg-white animate-scale-in"><div class="text-5xl mb-4">🎉</div><h2 class="text-xl font-bold">歡迎加入會員</h2><p class="text-gray-400 text-sm mt-2">正在前往會員中心...</p></div>`;
+            // Redirect to Profile directly
+            setTimeout(() => navigateTo('profile'), 1500);
+        }
+
+        // --- 4. NAVIGATION & VIEWS ---
         function navigateTo(view) {
             currentState.view = view;
+            if (view === 'login') { renderView('login'); return; }
             
-            // Update Tabs
-            document.querySelectorAll('.nav-item').forEach(el => {
-                const target = el.dataset.target;
-                if (target === view || (['services','records'].includes(view) && target === view)) {
-                     el.classList.add('tab-active');
-                     el.classList.remove('tab-inactive');
-                } else {
-                     el.classList.remove('tab-active');
-                     el.classList.add('tab-inactive');
-                }
-            });
+            document.getElementById('app-header').classList.remove('hidden');
+            document.getElementById('app-nav').classList.remove('hidden');
+            
+            // Header Button logic
+            const headerBtn = document.getElementById('header-action-btn');
+            if(view === 'profile') headerBtn.classList.remove('hidden');
+            else headerBtn.classList.add('hidden');
 
+            document.querySelectorAll('.nav-item').forEach(el => {
+                const active = el.dataset.target === view || (['services','staff','time','confirm','success'].includes(view) && el.dataset.target === 'services');
+                el.className = `nav-item flex flex-col items-center space-y-1 w-1/4 ${active ? 'tab-active' : 'tab-inactive'}`;
+            });
             renderView(view);
         }
 
         function renderView(view) {
             const content = document.getElementById('app-content');
             content.innerHTML = '';
+            document.getElementById('app-title-display').innerText = view === 'profile' ? '會員中心' : store.config.shopName;
 
-            if (view === 'home') {
-                content.innerHTML = `
-                    <div class="space-y-6 animate-fade-in">
-                        <div class="w-full h-40 bg-gradient-to-r from-gray-800 to-gray-900 rounded-2xl flex items-center p-6 text-white relative overflow-hidden shadow-lg">
-                            <div class="z-10">
-                                <h2 class="text-xl font-bold">Hi, ${store.user.displayName}</h2>
-                                <p class="text-xs opacity-70 mt-1">${store.user.isLineUser ? '會員' : '歡迎預約'}</p>
-                                <button onclick="navigateTo('services')" class="mt-4 bg-[#06C755] text-white px-4 py-2 rounded-full text-sm font-bold shadow-md hover:scale-105 transition-transform">立即預約</button>
-                            </div>
-                            ${store.user.pictureUrl ? `<img src="${store.user.pictureUrl}" class="absolute right-4 bottom-4 w-16 h-16 rounded-full border-2 border-white opacity-80">` : ''}
-                        </div>
-                        <div class="grid grid-cols-2 gap-4">
-                            <div onclick="navigateTo('services')" class="bg-blue-50 p-4 rounded-xl flex flex-col items-center justify-center cursor-pointer hover:bg-blue-100 transition">
-                                <span class="text-3xl mb-2">✂️</span><span class="font-bold text-gray-700">美髮</span>
-                            </div>
-                            <div onclick="navigateTo('services')" class="bg-pink-50 p-4 rounded-xl flex flex-col items-center justify-center cursor-pointer hover:bg-pink-100 transition">
-                                <span class="text-3xl mb-2">💅</span><span class="font-bold text-gray-700">美甲</span>
-                            </div>
-                        </div>
-                    </div>`;
-            } else if (view === 'services') {
-                content.innerHTML = `
-                    <div class="space-y-3 animate-fade-in">
-                        <div class="flex items-center space-x-2 mb-2"><button onclick="navigateTo('home')">‹</button><h2 class="font-bold">選擇服務</h2></div>
-                        ${store.services.map(s => `
-                            <div onclick="alert('進入預約流程 (模擬)')" class="bg-white p-4 rounded-xl border border-gray-100 shadow-sm flex justify-between cursor-pointer hover:border-[#06C755]">
-                                <div class="flex items-center space-x-3"><span class="text-2xl">${s.icon}</span><div><div class="font-bold">${s.name}</div><div class="text-xs text-gray-500">${s.duration} 分</div></div></div>
-                                <div class="font-bold">NT$ ${s.price}</div>
-                            </div>
-                        `).join('')}
-                    </div>`;
-            } else if (view === 'records') {
-                content.innerHTML = `<div class="text-center text-gray-400 mt-10">尚無預約紀錄</div>`;
-            } else if (view === 'profile') {
-                content.innerHTML = `<div class="p-4 bg-white rounded-xl shadow-sm text-center">ID: ${store.user.userId.substring(0,8)}...</div>`;
-            }
+            if (view === 'login') content.innerHTML = renderLogin();
+            else if (view === 'home') content.innerHTML = renderHome();
+            else if (view === 'profile') content.innerHTML = renderProfile(); // NEW PROFILE VIEW
+            else if (view === 'services') content.innerHTML = renderServices();
+            else if (view === 'staff') content.innerHTML = renderStaff();
+            else if (view === 'time') { content.innerHTML = renderTimeSelection(); setTimeout(initCalendar, 0); }
+            else if (view === 'confirm') content.innerHTML = renderConfirmation();
+            else if (view === 'success') content.innerHTML = renderSuccess();
+            else if (view === 'records') content.innerHTML = renderRecords();
         }
 
-        // --- Init ---
-        // 確保 DOM 載入後立即執行
-        document.addEventListener('DOMContentLoaded', () => {
-            startApp();
-        });
+        // --- 5. PROFILE VIEW (Updated Icon Logic) ---
+        function renderProfile() {
+            const u = store.user;
+            let icon = '📱';
+            if (u.loginType === 'line') icon = '<span class="text-[#06C755] font-bold">LINE</span>';
+            else if (u.loginType === 'google') icon = '<span class="text-red-500 font-bold">G</span>';
 
-        // 簡單動畫
+            return `
+                <div class="space-y-4 animate-fade-in pb-6">
+                    <!-- Member Card -->
+                    <div class="px-4 pt-4">
+                        <div class="member-card-bg rounded-2xl p-6 text-white shadow-xl relative overflow-hidden">
+                            <div class="absolute top-0 right-0 p-4 opacity-10 text-6xl">💎</div>
+                            <div class="flex items-center space-x-4 mb-6">
+                                <div class="w-14 h-14 bg-white rounded-full flex items-center justify-center text-xl shadow-lg">
+                                    ${icon}
+                                </div>
+                                <div>
+                                    <h2 class="text-lg font-bold">${u.displayName}</h2>
+                                    <p class="text-xs text-gray-300">${u.phone || '尚未綁定電話'}</p>
+                                </div>
+                                <div class="ml-auto bg-yellow-500 text-black text-[10px] font-bold px-2 py-1 rounded-full">GOLD</div>
+                            </div>
+                            <div class="flex justify-between items-end">
+                                <div><p class="text-[10px] text-gray-400 mb-1">會員編號</p><p class="font-mono text-sm tracking-widest opacity-80">8829 1023 9928</p></div>
+                                <div class="text-right"><p class="text-[10px] text-gray-400">現有點數</p><p class="text-2xl font-bold gold-text">${u.points || 0}</p></div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Assets Dashboard -->
+                    <div class="grid grid-cols-3 gap-2 px-4">
+                        <div class="bg-white p-3 rounded-xl shadow-sm text-center"><div class="text-[#06C755] font-bold text-lg">${u.points || 0}</div><div class="text-xs text-gray-500">點數</div></div>
+                        <div onclick="openCouponModal()" class="bg-white p-3 rounded-xl shadow-sm text-center cursor-pointer hover:bg-gray-50"><div class="text-red-500 font-bold text-lg">2</div><div class="text-xs text-gray-500">優惠券</div></div>
+                        <div class="bg-white p-3 rounded-xl shadow-sm text-center"><div class="text-gray-800 font-bold text-lg">$0</div><div class="text-xs text-gray-500">儲值金</div></div>
+                    </div>
+
+                    <!-- Menu List -->
+                    <div class="bg-white mx-4 rounded-xl shadow-sm overflow-hidden">
+                        <div onclick="openEditProfile()" class="flex items-center justify-between p-4 border-b border-gray-50 cursor-pointer hover:bg-gray-50"><div class="flex items-center space-x-3"><span class="text-xl">✏️</span><span class="text-sm font-medium text-gray-700">修改個人資料</span></div><span class="text-gray-300">›</span></div>
+                        <div onclick="navigateTo('records')" class="flex items-center justify-between p-4 border-b border-gray-50 cursor-pointer hover:bg-gray-50"><div class="flex items-center space-x-3"><span class="text-xl">📅</span><span class="text-sm font-medium text-gray-700">預約紀錄查詢</span></div><span class="text-gray-300">›</span></div>
+                        <div onclick="openCouponModal()" class="flex items-center justify-between p-4 border-b border-gray-50 cursor-pointer hover:bg-gray-50"><div class="flex items-center space-x-3"><span class="text-xl">🎟️</span><span class="text-sm font-medium text-gray-700">我的優惠券</span></div><span class="text-gray-300">›</span></div>
+                         <div class="flex items-center justify-between p-4 cursor-pointer hover:bg-gray-50"><div class="flex items-center space-x-3"><span class="text-xl">💬</span><span class="text-sm font-medium text-gray-700">聯絡客服</span></div><span class="text-gray-300">›</span></div>
+                    </div>
+
+                    <!-- Logout -->
+                    <div class="px-4">
+                        <button onclick="logout()" class="w-full bg-white text-red-500 py-3 rounded-xl text-sm font-bold shadow-sm border border-red-50 hover:bg-red-50 transition">登出會員</button>
+                    </div>
+                </div>
+            `;
+        }
+
+        // --- 6. PROFILE ACTIONS ---
+        function logout() {
+            if(confirm('確定要登出嗎？')) {
+                localStorage.removeItem('booking_app_user');
+                store.user = null;
+                navigateTo('login');
+            }
+        }
+        function openEditProfile() {
+            document.getElementById('edit-name').value = store.user.displayName;
+            document.getElementById('edit-phone').value = store.user.phone || '';
+            document.getElementById('edit-profile-modal').classList.remove('hidden');
+        }
+        function closeEditProfile() { document.getElementById('edit-profile-modal').classList.add('hidden'); }
+        function saveProfile() {
+            const newName = document.getElementById('edit-name').value;
+            const newPhone = document.getElementById('edit-phone').value;
+            if(newName) {
+                store.user.displayName = newName;
+                store.user.phone = newPhone;
+                localStorage.setItem('booking_app_user', JSON.stringify(store.user));
+                closeEditProfile();
+                renderView('profile'); // Refresh
+            }
+        }
+        function openCouponModal() { document.getElementById('coupon-modal').classList.remove('hidden'); }
+        function closeCouponModal() { document.getElementById('coupon-modal').classList.add('hidden'); }
+
+
+        // --- 7. OTHER VIEWS (Standard) ---
+        function renderHome() {
+            return `
+                <div class="space-y-6 animate-fade-in p-4">
+                    <div class="w-full h-40 bg-gradient-to-r from-gray-800 to-gray-900 rounded-2xl flex items-center p-6 text-white relative overflow-hidden shadow-lg">
+                        <div class="z-10">
+                            <h2 class="text-xl font-bold">Hi, ${store.user.displayName}</h2>
+                            <p class="text-xs opacity-70 mt-1">${store.config.welcomeMsg}</p>
+                            <button onclick="navigateTo('services')" class="mt-4 bg-[#06C755] text-white px-4 py-2 rounded-full text-sm font-bold shadow-md hover:scale-105 transition-transform">立即預約</button>
+                        </div>
+                        <div class="absolute right-4 bottom-4 text-6xl opacity-20">✂️</div>
+                    </div>
+                    <div>
+                        <h3 class="font-bold text-gray-800 mb-3">熱門服務</h3>
+                        <div class="grid grid-cols-2 gap-4">
+                            ${store.config.services.slice(0, 4).map(s => `
+                                <div onclick="selectService('${s.id}')" class="bg-white p-4 rounded-xl shadow-sm border border-gray-100 flex flex-col items-center justify-center cursor-pointer hover:border-[#06C755] transition">
+                                    <span class="text-3xl mb-2">${s.icon}</span>
+                                    <span class="font-bold text-gray-700 text-sm">${s.name}</span>
+                                    <span class="text-xs text-gray-400">$${s.price}</span>
+                                </div>`).join('')}
+                        </div>
+                    </div>
+                </div>`;
+        }
+        function renderServices() {
+            return `<div class="space-y-3 animate-fade-in p-4">
+                <div class="flex items-center space-x-2 mb-2"><button onclick="navigateTo('home')">‹</button><h2 class="font-bold">選擇服務</h2></div>
+                ${store.config.services.map(s => `
+                    <div onclick="selectService('${s.id}')" class="bg-white p-4 rounded-xl border border-gray-100 shadow-sm flex justify-between cursor-pointer hover:border-[#06C755] hover:bg-green-50 transition">
+                        <div class="flex items-center space-x-3"><div class="w-10 h-10 bg-gray-100 rounded-full flex items-center justify-center text-xl">${s.icon}</div><div><div class="font-bold text-gray-800">${s.name}</div><div class="text-xs text-gray-500">${s.duration} 分鐘</div></div></div>
+                        <div class="font-bold text-[#06C755]">NT$ ${s.price}</div>
+                    </div>`).join('')}
+            </div>`;
+        }
+        function renderStaff() {
+             return `<div class="space-y-3 animate-fade-in p-4">
+                <div class="flex items-center space-x-2 mb-2"><button onclick="navigateTo('services')">‹</button><h2 class="font-bold">選擇設計師</h2></div>
+                <div class="grid grid-cols-2 gap-3">
+                ${store.config.staff.map(s => `
+                    <div onclick="selectStaff('${s.id}')" class="bg-white p-4 rounded-xl border border-gray-100 shadow-sm text-center cursor-pointer hover:border-[#06C755] hover:bg-green-50 transition group">
+                        <div class="text-4xl mb-2 transition transform group-hover:scale-110">${s.image}</div><div class="font-bold text-gray-800">${s.name}</div>
+                    </div>`).join('')}
+                </div>
+            </div>`;
+        }
+        function renderConfirmation() {
+            const f = currentState.booking;
+            return `<div class="space-y-4 animate-fade-in p-4">
+                <div class="flex items-center space-x-2 mb-2"><button onclick="navigateTo('time')">‹</button><h2 class="font-bold">確認預約</h2></div>
+                <div class="bg-white p-5 rounded-xl border-t-4 border-[#06C755] shadow-lg space-y-3">
+                    <div class="flex justify-between border-b border-gray-50 pb-2"><span class="text-gray-500">服務</span><span class="font-bold text-lg">${f.service.name}</span></div>
+                    <div class="flex justify-between border-b border-gray-50 pb-2"><span class="text-gray-500">設計師</span><span class="font-bold">${f.staff.name}</span></div>
+                    <div class="flex justify-between border-b border-gray-50 pb-2"><span class="text-gray-500">時間</span><span class="font-bold text-[#06C755]">${f.date} ${f.time}</span></div>
+                    <div class="flex justify-between pt-2"><span class="text-gray-500">費用</span><span class="font-bold text-xl">NT$ ${f.service.price}</span></div>
+                </div>
+                <div class="space-y-2"><label class="text-xs font-bold text-gray-500 ml-1">姓名</label><input id="userNameInput" type="text" class="w-full p-3 border rounded-xl bg-white" placeholder="預約姓名" value="${store.user.displayName || ''}"></div>
+                <div class="space-y-2"><label class="text-xs font-bold text-gray-500 ml-1">電話</label><input id="userPhoneInput" type="tel" class="w-full p-3 border rounded-xl bg-white" placeholder="聯絡電話" value="${store.user.phone || ''}"></div>
+                <button onclick="submitBooking()" class="w-full bg-[#06C755] text-white py-3 rounded-xl font-bold shadow-lg hover:bg-[#05b54d] active:scale-95 transition">確認送出</button>
+            </div>`;
+        }
+        function renderSuccess() { return `<div class="flex flex-col items-center justify-center h-full p-6 text-center animate-scale-in"><div class="w-20 h-20 bg-green-100 rounded-full flex items-center justify-center text-4xl mb-4 text-[#06C755]">✓</div><h2 class="text-2xl font-bold mb-2 text-gray-800">預約成功！</h2><p class="text-gray-500 text-sm mb-6">感謝您的預約。</p><button onclick="navigateTo('records')" class="w-full bg-gray-100 text-gray-700 py-3 rounded-xl font-bold hover:bg-gray-200">查看紀錄</button></div>`; }
+        function renderRecords() {
+            const list = store.bookings.slice().reverse();
+            return `<div class="space-y-3 animate-fade-in p-4"><h2 class="font-bold text-xl mb-4">預約紀錄</h2>${list.length === 0 ? '<div class="text-gray-400 text-center mt-10 text-sm">尚無紀錄</div>' : ''}${list.map(b => `<div class="bg-white p-4 rounded-xl border-l-4 border-[#06C755] shadow-sm"><div class="font-bold text-lg">${b.service.name}</div><div class="text-sm text-gray-500 mt-1">設計師: ${b.staff.name}</div><div class="mt-3 flex justify-between text-sm items-center pt-2 border-t border-gray-50"><span class="text-gray-600">📅 ${b.date} ${b.time}</span><span class="font-bold text-white bg-[#06C755] px-2 py-0.5 rounded text-xs">已預約</span></div></div>`).join('')}</div>`;
+        }
+        function renderTimeSelection() { return `<div class="h-full flex flex-col animate-fade-in p-4"><div class="flex items-center space-x-2 mb-2"><button onclick="navigateTo('staff')">‹</button><h2 class="font-bold">選擇時間</h2></div><div class="bg-white p-4 rounded-xl border border-gray-100 mb-4 shadow-sm"><div id="calendarGrid" class="grid grid-cols-7 gap-1 text-center text-sm"></div></div><div id="timeSlots" class="grid grid-cols-3 gap-2 overflow-y-auto content-start"></div></div>`; }
+
+        // --- 8. HELPERS (Time, Admin, etc) ---
+        function selectService(id) { currentState.booking.service = store.config.services.find(s => s.id === id); navigateTo('staff'); }
+        function selectStaff(id) { currentState.booking.staff = store.config.staff.find(s => s.id === id); navigateTo('time'); }
+        function initCalendar() {
+            const grid = document.getElementById('calendarGrid');
+            if(!grid) return;
+            grid.innerHTML = '';
+            ['日','一','二','三','四','五','六'].forEach(d => grid.innerHTML += `<div class="text-gray-400 text-xs mb-1">${d}</div>`);
+            for(let i=0; i<3; i++) grid.innerHTML += `<div></div>`;
+            for(let i=1; i<=30; i++) {
+                grid.innerHTML += `<div onclick="selectDate(${i})" class="calendar-day hover:bg-green-50 w-8 h-8 flex items-center justify-center rounded-full cursor-pointer mx-auto text-sm" id="day-${i}">${i}</div>`;
+            }
+        }
+        function selectDate(d) {
+            document.querySelectorAll('.calendar-day').forEach(el => el.classList.remove('selected'));
+            document.getElementById(`day-${d}`).classList.add('selected');
+            currentState.booking.date = `2026-01-${d}`;
+            const times = ['10:00', '11:00', '13:00', '14:30', '16:00', '19:00'];
+            document.getElementById('timeSlots').innerHTML = times.map(t => `<button onclick="selectTime('${t}')" class="border border-gray-200 p-2 rounded-lg text-sm hover:border-[#06C755] hover:text-[#06C755] hover:bg-green-50 transition">${t}</button>`).join('');
+        }
+        function selectTime(t) { currentState.booking.time = t; navigateTo('confirm'); }
+        function submitBooking() { store.bookings.push({ ...currentState.booking, id: Date.now() }); navigateTo('success'); }
+        
+        function mobileToggleAdmin() {
+            const dash = document.getElementById('admin-dashboard');
+            const client = document.getElementById('client-app');
+            const btn = document.getElementById('mobile-back-btn');
+            dash.classList.toggle('hidden'); client.classList.toggle('hidden'); btn.classList.toggle('hidden');
+        }
+        function updateSettings() { store.config.shopName = document.getElementById('setting-shop-name').value; store.config.welcomeMsg = document.getElementById('setting-welcome-msg').value; saveData(); }
+        function renderAdminLists() {
+            const tbody = document.getElementById('services-table-body');
+            tbody.innerHTML = store.config.services.map((s, index) => `
+                <tr class="border-b border-gray-100 hover:bg-gray-50">
+                    <td class="p-2"><input type="text" class="w-10 text-center border rounded" value="${s.icon}" onchange="editService(${index}, 'icon', this.value)"></td>
+                    <td class="p-2"><input type="text" class="w-full border rounded px-2 py-1" value="${s.name}" onchange="editService(${index}, 'name', this.value)"></td>
+                    <td class="p-2"><input type="number" class="w-20 border rounded px-2 py-1" value="${s.price}" onchange="editService(${index}, 'price', this.value)"></td>
+                    <td class="p-2 text-right"><button onclick="deleteService(${index})" class="text-red-500 font-bold">×</button></td>
+                </tr>`).join('');
+            const staffGrid = document.getElementById('staff-grid');
+            staffGrid.innerHTML = store.config.staff.map((s, index) => `
+                <div class="bg-gray-50 p-3 rounded-lg border border-gray-200 relative group text-center">
+                    <button onclick="deleteStaff(${index})" class="absolute top-1 right-2 text-gray-300 hover:text-red-500">×</button>
+                    <input type="text" class="w-10 h-10 text-2xl text-center bg-white rounded-full border mb-1" value="${s.image}" onchange="editStaff(${index}, 'image', this.value)">
+                    <input type="text" class="w-full text-center text-sm font-bold bg-transparent border-b border-transparent focus:border-[#06C755] focus:outline-none" value="${s.name}" onchange="editStaff(${index}, 'name', this.value)">
+                </div>`).join('');
+        }
+        function addNewService() { store.config.services.push({ id: 's'+Date.now(), name: '新服務', price: 1000, duration: 60, icon: '🆕' }); saveData(); renderAdminLists(); }
+        function editService(i, f, v) { if(f==='price') v=parseInt(v); store.config.services[i][f] = v; saveData(); }
+        function deleteService(i) { if(confirm('刪除?')) { store.config.services.splice(i, 1); saveData(); renderAdminLists(); } }
+        function addNewStaff() { store.config.staff.push({ id: 'st'+Date.now(), name: '新人員', image: '👤' }); saveData(); renderAdminLists(); }
+        function editStaff(i, f, v) { store.config.staff[i][f] = v; saveData(); }
+        function deleteStaff(i) { if(confirm('刪除?')) { store.config.staff.splice(i, 1); saveData(); renderAdminLists(); } }
+        function resetToDefault() { if(confirm('重置?')) { localStorage.removeItem('booking_app_config'); loadData(); } }
+
+        window.onload = loadData;
         const style = document.createElement('style');
-        style.innerHTML = `.animate-fade-in { animation: fadeIn 0.4s ease-out forwards; } @keyframes fadeIn { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }`;
+        style.innerHTML = `.animate-fade-in { animation: fadeIn 0.4s ease-out forwards; } @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } } .animate-scale-in { animation: scaleIn 0.3s ease-out forwards; } @keyframes scaleIn { from { opacity: 0; transform: scale(0.9); } to { opacity: 1; transform: scale(1); } }`;
         document.head.appendChild(style);
 
     </script>
