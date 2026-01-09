@@ -3,113 +3,16 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>LINE 預約系統 - 雲端同步正式版</title>
+    <title>LINE 預約系統 - 手機極速修復版</title>
     
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script charset="utf-8" src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
     
-    <!-- 引入 Google Firebase SDK -->
-    <script type="module">
-        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
-        import { getFirestore, doc, onSnapshot, setDoc, updateDoc } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
+    <!-- 改用相容性最高的 Firebase Compat SDK (解決手機載入卡住問題) -->
+    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
 
-        // =========================================================
-        // ▼▼▼ 老闆請注意：請將下方的設定換成您自己的 Firebase Config ▼▼▼
-        // =========================================================
-        const firebaseConfig = {
-            // 這只是範例，請換成您申請的那一串
-            apiKey: "AIzaSyDfGrWPE2uBPEh30PaA-4lKDzUZ7VPSc4I",
-            authDomain: "jiening-e8e44.firebaseapp.com",
-            projectId: "jiening-e8e44",
-            storageBucket: "jiening-e8e44.firebasestorage.app",
-            messagingSenderId: "361931617730",
-            appId: "1:361931617730:web:188406fade9ddee6ac925b"
-            measurementId: "G-WYV578HLXT"
-        };
-        // ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
-
-        let db = null;
-        let useCloud = false;
-
-        // 1. 檢查 Config 是否為預設範例 (若是，則不嘗試連線)
-        if (firebaseConfig.projectId === "example-project" || firebaseConfig.apiKey.includes("EXAMPLE")) {
-            console.warn("⚠️ 偵測到範例 Firebase 設定，系統將自動切換為【本地離線模式】。請更新程式碼以啟用雲端同步。");
-        } else {
-            try {
-                const app = initializeApp(firebaseConfig);
-                db = getFirestore(app);
-                useCloud = true;
-                console.log("✅ Firebase 連線初始化");
-            } catch (e) {
-                console.error("Firebase 初始化錯誤:", e);
-            }
-        }
-
-        // 將 DB 功能掛載到全域變數，讓下方邏輯可使用
-        window.cloudDB = {
-            // 監聽資料變更 (即時同步)
-            listenToConfig: (callback) => {
-                // 如果不使用雲端 (或設定錯誤)，直接讀取本地
-                if (!useCloud || !db) {
-                    const saved = localStorage.getItem('booking_app_config');
-                    if (saved) callback(JSON.parse(saved));
-                    return;
-                }
-
-                // 嘗試監聽，並加入錯誤處理 (Fix: 處理 Permission Denied)
-                onSnapshot(doc(db, "shops", "myShop"), 
-                    (docSnap) => {
-                        if (docSnap.exists()) {
-                            callback(docSnap.data());
-                        } else {
-                            // 雲端無資料，初始化預設值
-                            window.cloudDB.saveConfig(window.DEFAULTS);
-                        }
-                    },
-                    (error) => {
-                        console.error("🔥 雲端讀取失敗 (權限/連線):", error.message);
-                        console.warn("🔄 自動切換回【本地離線模式】以維持運作");
-                        useCloud = false; // 關閉雲端旗標
-                        
-                        // 嘗試讀取本地舊資料作為備案
-                        const saved = localStorage.getItem('booking_app_config');
-                        if (saved) callback(JSON.parse(saved));
-                    }
-                );
-            },
-            // 儲存資料
-            saveConfig: async (newConfig) => {
-                // 1. 總是先存本地 (最保險)
-                localStorage.setItem('booking_app_config', JSON.stringify(newConfig));
-
-                // 2. 如果雲端可用，嘗試同步
-                if (useCloud && db) {
-                    try {
-                        await setDoc(doc(db, "shops", "myShop"), newConfig);
-                        if (window.showToast) window.showToast("☁️ 已同步至雲端");
-                    } catch (e) {
-                        console.error("雲端儲存失敗:", e);
-                        if (window.showToast) window.showToast("⚠️ 儲存失敗 (僅存本地)");
-                        // 遇到錯誤時降級，避免卡住
-                        useCloud = false; 
-                    }
-                } else {
-                    if (window.showToast) window.showToast("已儲存 (本地模式)");
-                }
-            }
-        };
-
-        // 確保 initApp 存在再執行 (避免模組載入順序問題)
-        if (window.initApp) {
-            window.initApp();
-        } else {
-            window.addEventListener('load', () => {
-                if (window.initApp) window.initApp();
-            });
-        }
-    </script>
-    
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@300;400;500;700&display=swap');
         
@@ -137,9 +40,24 @@
             font-size: 12px; opacity: 0; transition: opacity 0.3s; pointer-events: none; z-index: 9999;
         }
         #save-toast.show { opacity: 1; }
+        
+        /* Loading Overlay */
+        #loading-overlay {
+            position: fixed; inset: 0; background: white; z-index: 50; flex-direction: column;
+            display: flex; align-items: center; justify-content: center; transition: opacity 0.5s;
+        }
+        .spinner { width: 30px; height: 30px; border: 3px solid #f3f3f3; border-top: 3px solid #06C755; border-radius: 50%; animation: spin 1s linear infinite; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
     </style>
 </head>
 <body>
+
+    <!-- Loading Screen -->
+    <div id="loading-overlay">
+        <div class="spinner mb-4"></div>
+        <div class="text-gray-500 text-sm">正在載入系統...</div>
+        <div id="loading-status" class="text-gray-300 text-xs mt-2">連線中</div>
+    </div>
 
     <div id="save-toast">資料已儲存</div>
 
@@ -158,7 +76,6 @@
 
             <main id="app-content" class="flex-grow p-0 overflow-y-auto no-scrollbar relative bg-gray-50">
                 <!-- Content Rendered via JS -->
-                <div class="flex items-center justify-center h-full text-gray-400">正在讀取雲端資料...</div>
             </main>
 
             <nav id="app-nav" class="bg-white border-t border-gray-100 absolute bottom-0 w-full h-16 flex justify-around items-center px-2 z-30 shadow-[0_-2px_10px_rgba(0,0,0,0.05)] hidden">
@@ -219,12 +136,44 @@
         </button>
     </div>
 
-    <!-- Modals (Profile, Coupon) omitted for brevity but functionality preserved -->
-    <!-- ... Copied from previous logic ... -->
-
     <!-- ================= JAVASCRIPT LOGIC ================= -->
     <script>
-        // --- 1. DATA & DEFAULTS ---
+        // =========================================================
+        // ▼▼▼ 老闆請注意：請將下方的設定換成您自己的 Firebase Config ▼▼▼
+        // =========================================================
+        const firebaseConfig = {
+            apiKey: "AIzaSyDfGrWPE2uBPEh30PaA-4lKDzUZ7VPSc4I", // 請替換
+            authDomain: "jiening-e8e44.firebaseapp.com", // 請替換
+            projectId: "jiening-e8e44", // 請替換
+            storageBucket: "jiening-e8e44.firebasestorage.app", // 請替換
+            messagingSenderId: "361931617730", // 請替換
+            appId: "1:361931617730:web:188406fade9ddee6ac925b" // 請替換
+            measurementId: "G-WYV578HLXT"
+        };
+
+        // --- 1. FIREBASE & INIT LOGIC ---
+        let db = null;
+        let useCloud = false;
+        let configLoaded = false; // Flag to track loading
+
+        // Initialize Firebase (Compat Mode)
+        function initFirebase() {
+            // Safety check for dummy config
+            if (firebaseConfig.apiKey.includes("YOUR-API-KEY")) {
+                console.warn("⚠️ 使用預設 Config，自動切換至本地模式");
+                return false;
+            }
+            try {
+                firebase.initializeApp(firebaseConfig);
+                db = firebase.firestore();
+                return true;
+            } catch (e) {
+                console.error("Firebase Init Error:", e);
+                return false;
+            }
+        }
+
+        // --- 2. DATA DEFAULTS ---
         window.DEFAULTS = {
             shopName: "LINE 預約系統",
             welcomeMsg: "歡迎回來，請選擇您需要的服務。",
@@ -241,56 +190,115 @@
         let currentState = { view: 'login', booking: {} };
         let saveTimeout;
 
-        // --- 2. INIT & CLOUD SYNC ---
-        window.initApp = function() {
-            // Load user session
+        // --- 3. CORE STARTUP ---
+        window.onload = function() {
+            const statusEl = document.getElementById('loading-status');
+            
+            // 1. Try connect Cloud
+            useCloud = initFirebase();
+            
+            // 2. Load Local Data Immediately (Instant Preview)
+            const localData = localStorage.getItem('booking_app_config');
+            if(localData) {
+                try {
+                    store.config = JSON.parse(localData);
+                    console.log("Loaded local data cache");
+                } catch(e) {}
+            }
+
+            // 3. Setup Cloud Listener with Timeout Safety Net
+            if (useCloud) {
+                statusEl.innerText = "正在連線雲端...";
+                
+                // Safety Net: Force app open after 3 seconds even if cloud is slow
+                setTimeout(() => {
+                    if (!configLoaded) {
+                        console.warn("⏳ 雲端連線逾時，強制開啟本地模式");
+                        statusEl.innerText = "連線慢，開啟本地模式";
+                        startAppUI();
+                    }
+                }, 3000);
+
+                // Real Listener
+                db.collection("shops").doc("myShop").onSnapshot((doc) => {
+                    configLoaded = true;
+                    if (doc.exists) {
+                        store.config = doc.data();
+                        console.log("☁️ 雲端資料同步成功");
+                        // Also update local cache
+                        localStorage.setItem('booking_app_config', JSON.stringify(store.config));
+                    } else {
+                        // First time: save defaults to cloud
+                        window.cloudDB.saveConfig(window.DEFAULTS);
+                    }
+                    startAppUI(); // Re-render with new data
+                }, (error) => {
+                    console.error("🔥 雲端讀取錯誤:", error);
+                    statusEl.innerText = "離線模式";
+                    // Fallback to local
+                    configLoaded = true;
+                    startAppUI();
+                });
+            } else {
+                statusEl.innerText = "本地模式";
+                configLoaded = true;
+                setTimeout(startAppUI, 500); // Small delay for UX
+            }
+        };
+
+        function startAppUI() {
+            // Remove Loading Screen
+            const loader = document.getElementById('loading-overlay');
+            if (loader) {
+                loader.style.opacity = '0';
+                setTimeout(() => loader.remove(), 500);
+            }
+
+            // Load User Session
             const savedUser = localStorage.getItem('booking_app_user');
             if (savedUser) {
                 store.user = JSON.parse(savedUser);
-                navigateTo('home');
+                navigateTo('profile'); // Return user goes to profile
             } else {
                 navigateTo('login');
             }
 
-            // Start Listening to Cloud DB
-            if (window.cloudDB) {
-                window.cloudDB.listenToConfig((data) => {
-                    store.config = data;
-                    renderAll(); // Refresh UI when data changes from cloud
-                    fillAdminInputs();
-                });
-            } else {
-                // Fallback to local storage
-                const localData = localStorage.getItem('booking_app_config');
-                if(localData) store.config = JSON.parse(localData);
-                renderAll();
-                fillAdminInputs();
+            // Render
+            renderAll();
+            fillAdminInputs();
+        }
+
+        // --- 4. CLOUD DB HELPER ---
+        window.cloudDB = {
+            saveConfig: async (newConfig) => {
+                // Always save local first
+                localStorage.setItem('booking_app_config', JSON.stringify(newConfig));
+                
+                if (useCloud && db) {
+                    try {
+                        await db.collection("shops").doc("myShop").set(newConfig);
+                        showToast("☁️ 已同步至雲端");
+                    } catch (e) {
+                        console.error("雲端儲存失敗:", e);
+                        showToast("⚠️ 儲存失敗 (僅存本地)");
+                    }
+                } else {
+                    showToast("已儲存 (本地模式)");
+                }
             }
         };
 
-        // --- 3. SAVE LOGIC (Debounced) ---
-        // 當使用者打字時，不會馬上存，而是停下 1 秒後才存，節省流量
+        // --- 5. APP LOGIC (Same as before) ---
         function debouncedSave() {
             clearTimeout(saveTimeout);
             saveTimeout = setTimeout(() => {
                 updateConfigFromInputs();
-                if (window.cloudDB) {
-                    window.cloudDB.saveConfig(store.config);
-                } else {
-                    localStorage.setItem('booking_app_config', JSON.stringify(store.config));
-                    showToast("已儲存 (本地模式)");
-                }
+                window.cloudDB.saveConfig(store.config);
             }, 1000);
         }
         
-        // Immediate save for buttons (add/delete)
         function forceSave() {
-            if (window.cloudDB) {
-                window.cloudDB.saveConfig(store.config);
-            } else {
-                localStorage.setItem('booking_app_config', JSON.stringify(store.config));
-                showToast("已儲存 (本地模式)");
-            }
+            window.cloudDB.saveConfig(store.config);
             renderAll();
         }
 
@@ -299,7 +307,6 @@
             store.config.welcomeMsg = document.getElementById('setting-welcome-msg').value;
             store.config.loginTitle = document.getElementById('setting-login-title').value;
             store.config.loginSubtitle = document.getElementById('setting-login-subtitle').value;
-            // Note: Services and Staff updates modify store.config directly in their functions
         }
         
         function fillAdminInputs() {
@@ -314,36 +321,30 @@
 
         function showToast(msg) {
             const t = document.getElementById('save-toast');
-            t.innerText = msg;
-            t.classList.add('show');
-            setTimeout(() => t.classList.remove('show'), 2000);
+            if(t) {
+                t.innerText = msg;
+                t.classList.add('show');
+                setTimeout(() => t.classList.remove('show'), 2000);
+            }
         }
 
-        // --- 4. RENDER LOGIC ---
         function renderAll() {
-            // Update Title
             const titleEl = document.getElementById('app-title-display');
             if(titleEl) titleEl.innerText = store.config.shopName;
-            
-            // Re-render current view
             renderView(currentState.view);
             renderAdminLists();
         }
 
-        // --- 5. NAVIGATION ---
         function navigateTo(view) {
             currentState.view = view;
             if (view === 'login') { renderView('login'); return; }
             document.getElementById('app-header').classList.remove('hidden');
             document.getElementById('app-nav').classList.remove('hidden');
-            
-             // Header Button logic
             const headerBtn = document.getElementById('header-action-btn');
             if(headerBtn) {
                  if(view === 'profile') headerBtn.classList.remove('hidden');
                  else headerBtn.classList.add('hidden');
             }
-
             document.querySelectorAll('.nav-item').forEach(el => {
                 const active = el.dataset.target === view || (['services','staff','time','confirm','success'].includes(view) && el.dataset.target === 'services');
                 el.className = `nav-item flex flex-col items-center space-y-1 w-1/4 ${active ? 'tab-active' : 'tab-inactive'}`;
@@ -354,57 +355,42 @@
         function renderView(view) {
             const content = document.getElementById('app-content');
             content.innerHTML = '';
-
             if (view === 'login') content.innerHTML = renderLogin();
             else if (view === 'home') content.innerHTML = renderHome();
             else if (view === 'services') content.innerHTML = renderServices();
             else if (view === 'staff') content.innerHTML = renderStaff();
-            else if (view === 'profile') content.innerHTML = renderProfile(); // Add Profile
-            // Add other views as needed
+            else if (view === 'profile') content.innerHTML = renderProfile();
         }
 
-        // --- VIEW TEMPLATES (Simplified for brevity, same structure as before) ---
+        // --- VIEWS ---
         function renderLogin() {
              document.getElementById('app-header').classList.add('hidden');
              document.getElementById('app-nav').classList.add('hidden');
-             return `<div class="h-full flex flex-col items-center justify-center p-8 bg-white"><div class="text-center mb-8"><div class="w-20 h-20 bg-[#06C755] rounded-3xl flex items-center justify-center text-white text-4xl font-bold mx-auto mb-6 shadow-xl">L</div><h2 class="text-2xl font-bold text-gray-800">${store.config.loginTitle}</h2><p class="text-gray-400 mt-2 text-sm">${store.config.loginSubtitle}</p></div><button onclick="mockLogin()" class="w-full bg-[#06C755] text-white py-4 rounded-2xl font-bold">LINE 登入</button></div>`;
+             return `<div class="h-full flex flex-col items-center justify-center p-8 bg-white animate-fade-in"><div class="text-center mb-8"><div class="w-20 h-20 bg-[#06C755] rounded-3xl flex items-center justify-center text-white text-4xl font-bold mx-auto mb-6 shadow-xl">L</div><h2 class="text-2xl font-bold text-gray-800">${store.config.loginTitle}</h2><p class="text-gray-400 mt-2 text-sm">${store.config.loginSubtitle}</p></div><button onclick="mockLogin()" class="w-full bg-[#06C755] text-white py-4 rounded-2xl font-bold mb-4">LINE 登入</button><button onclick="mockGoogleLogin()" class="w-full border py-4 rounded-2xl font-bold text-gray-600">Google 登入</button></div>`;
         }
         function renderHome() {
-             return `<div class="space-y-6 p-4"><div class="w-full h-40 bg-gradient-to-r from-gray-800 to-gray-900 rounded-2xl flex items-center p-6 text-white relative overflow-hidden shadow-lg"><div class="z-10"><h2 class="text-xl font-bold">Hi, ${store.user.displayName}</h2><p class="text-xs opacity-70 mt-1">${store.config.welcomeMsg}</p><button onclick="navigateTo('services')" class="mt-4 bg-[#06C755] text-white px-4 py-2 rounded-full text-sm font-bold">立即預約</button></div></div></div>`;
+             return `<div class="space-y-6 p-4 animate-fade-in"><div class="w-full h-40 bg-gradient-to-r from-gray-800 to-gray-900 rounded-2xl flex items-center p-6 text-white relative overflow-hidden shadow-lg"><div class="z-10"><h2 class="text-xl font-bold">Hi, ${store.user.displayName}</h2><p class="text-xs opacity-70 mt-1">${store.config.welcomeMsg}</p><button onclick="navigateTo('services')" class="mt-4 bg-[#06C755] text-white px-4 py-2 rounded-full text-sm font-bold">立即預約</button></div></div></div>`;
         }
         function renderServices() {
-             return `<div class="space-y-3 p-4"><div class="flex items-center space-x-2 mb-2"><button onclick="navigateTo('home')">‹</button><h2 class="font-bold">選擇服務</h2></div>${store.config.services.map(s => `<div class="bg-white p-4 rounded-xl border border-gray-100 shadow-sm flex justify-between"><div class="flex items-center space-x-3"><div class="w-10 h-10 bg-gray-100 rounded-full flex items-center justify-center text-xl">${s.icon}</div><div><div class="font-bold">${s.name}</div><div class="text-xs text-gray-500">$${s.price}</div></div></div></div>`).join('')}</div>`;
+             return `<div class="space-y-3 p-4 animate-fade-in"><div class="flex items-center space-x-2 mb-2"><button onclick="navigateTo('home')">‹</button><h2 class="font-bold">選擇服務</h2></div>${store.config.services.map(s => `<div class="bg-white p-4 rounded-xl border border-gray-100 shadow-sm flex justify-between"><div class="flex items-center space-x-3"><div class="w-10 h-10 bg-gray-100 rounded-full flex items-center justify-center text-xl">${s.icon}</div><div><div class="font-bold">${s.name}</div><div class="text-xs text-gray-500">$${s.price}</div></div></div></div>`).join('')}</div>`;
         }
         function renderStaff() { return `<div class="p-4">設計師列表 (請至後台新增)</div>`; }
-        function renderProfile() { return `<div class="p-4"><div class="member-card-bg rounded-2xl p-6 text-white shadow-xl"><h2 class="text-lg font-bold">${store.user.displayName}</h2><button onclick="logout()" class="mt-4 text-xs bg-white text-black px-2 py-1 rounded">登出</button></div></div>`; }
+        function renderProfile() { return `<div class="p-4 animate-fade-in"><div class="member-card-bg rounded-2xl p-6 text-white shadow-xl"><h2 class="text-lg font-bold">${store.user.displayName}</h2><p class="text-sm opacity-80">${store.user.loginType === 'line' ? 'LINE 帳號' : 'Google 帳號'}</p><button onclick="logout()" class="mt-4 text-xs bg-white text-black px-2 py-1 rounded">登出</button></div></div>`; }
 
         // --- ACTIONS ---
-        function mockLogin() {
-            store.user = { displayName: "會員", phone: "0912345678" };
-            localStorage.setItem('booking_app_user', JSON.stringify(store.user));
-            navigateTo('home');
-        }
-        function logout() {
-            localStorage.removeItem('booking_app_user');
-            store.user = null;
-            navigateTo('login');
-        }
+        function mockLogin() { loginSuccess({ displayName: "LINE 會員", loginType: "line" }); }
+        function mockGoogleLogin() { loginSuccess({ displayName: "Google 會員", loginType: "google" }); }
+        function loginSuccess(u) { store.user = u; localStorage.setItem('booking_app_user', JSON.stringify(u)); navigateTo('profile'); }
+        function logout() { localStorage.removeItem('booking_app_user'); store.user = null; navigateTo('login'); }
         function mobileToggleAdmin() {
              const dash = document.getElementById('admin-dashboard');
              const client = document.getElementById('client-app');
              const btn = document.getElementById('mobile-back-btn');
              dash.classList.toggle('hidden'); client.classList.toggle('hidden');
         }
-        function resetToDefault() {
-            if(confirm('確定重置?')) {
-                store.config = JSON.parse(JSON.stringify(window.DEFAULTS));
-                forceSave();
-            }
-        }
+        function resetToDefault() { if(confirm('確定重置?')) { store.config = JSON.parse(JSON.stringify(window.DEFAULTS)); forceSave(); } }
 
-        // --- ADMIN LIST RENDERERS ---
         function renderAdminLists() {
-            // Services
             const tbody = document.getElementById('services-table-body');
             if(tbody) {
                 tbody.innerHTML = store.config.services.map((s, index) => `
@@ -415,7 +401,6 @@
                         <td class="p-2 text-right"><button onclick="deleteService(${index})" class="text-red-500 font-bold">×</button></td>
                     </tr>`).join('');
             }
-            // Staff
             const staffGrid = document.getElementById('staff-grid');
             if(staffGrid) {
                 staffGrid.innerHTML = store.config.staff.map((s, index) => `
@@ -427,16 +412,13 @@
             }
         }
 
-        // Edit Functions (trigger debounced save or force save)
         window.addNewService = function() { store.config.services.push({ id: 's'+Date.now(), name: '新服務', price: 1000, duration: 60, icon: '🆕' }); forceSave(); };
         window.editService = function(i, f, v) { if(f==='price') v=parseInt(v); store.config.services[i][f] = v; debouncedSave(); };
         window.deleteService = function(i) { if(confirm('刪除?')) { store.config.services.splice(i, 1); forceSave(); } };
         window.addNewStaff = function() { store.config.staff.push({ id: 'st'+Date.now(), name: '新人員', image: '👤' }); forceSave(); };
         window.editStaff = function(i, f, v) { store.config.staff[i][f] = v; debouncedSave(); };
         window.deleteStaff = function(i) { if(confirm('刪除?')) { store.config.staff.splice(i, 1); forceSave(); } };
-
-        // Mock openEditProfile for header button
-        window.openEditProfile = function() { alert('(模擬) 開啟編輯個人資料視窗'); };
+        window.openEditProfile = function() { alert('編輯個人資料視窗'); };
 
     </script>
 </body>
